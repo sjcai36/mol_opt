@@ -111,6 +111,8 @@ def main():
         from main.graphinvent.run import GraphInvent_Optimizer as Optimizer
     elif args.method == "rationale_rl":
         from main.rationale_rl.run import Rationale_RL_Optimizer as Optimizer
+    elif args.method == "gpbo_reinvent":
+        from main.gpbo_reinvent.run import REINVENT_Optimizer as Optimizer
     else:
         raise ValueError("Unrecognized method name.")
 
