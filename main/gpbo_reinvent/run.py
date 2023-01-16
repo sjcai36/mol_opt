@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+from rdkit.Chem import rdMolDescriptors
 path_here = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(path_here)
 sys.path.append('/'.join(path_here.rstrip('/').split('/')[:-2]))
@@ -10,17 +11,27 @@ from model import RNN
 from data_structs import Vocabulary, Experience
 import torch
 import random
+import functools
+import gpytorch
 from main.gpbo.gp import (TanimotoGP, batch_predict_mu_var_numpy, 
     fit_gp_hyperparameters)
 from main.gpbo.fingerprints import smiles_to_fp_array
 from main.gpbo.bo import acquisition_funcs
-from main.gpbo.function_utils import CachedFunction
+from main.gpbo.function_utils import CachedFunction, CachedBatchFunction
+
+def get_trained_gp(X_train, y_train,):
+
+    # Fit model using type 2 maximum likelihood
+    model = TanimotoGP(
+        train_x=torch.as_tensor(X_train), train_y=torch.as_tensor(y_train)
+    )
+    fit_gp_hyperparameters(model)
+    return model
 
 def acq_f_of_time(bo_iter, bo_state_dict):
     # Beta log-uniform between ~0.3 and ~30
     # beta = 10 ** (x ~ Uniform(-0.5, 1.5))
     beta_curr = 10 ** float(np.random.uniform(-0.5, 1.5))
-    gp_bo.logger.debug(f"Acquisition UCB beta set to {beta_curr:.2e}")
     return functools.partial(
         acquisition_funcs.upper_confidence_bound,
         beta=beta_curr ** 2,  # due to different conventions of what beta is in UCB
@@ -48,7 +59,7 @@ class REINVENT_Optimizer(BaseOptimizer):
             acq_vals = acq_func_np(mu_pred, var_pred)
             return list(map(float, acq_vals))
 
-        scoring_function = CachedFunction(_acq_func_smiles)
+        scoring_function = CachedBatchFunction(_acq_func_smiles)
 
         path_here = os.path.dirname(os.path.realpath(__file__))
         restore_prior_from=os.path.join(path_here, 'data/Prior.ckpt')
@@ -98,7 +109,7 @@ class REINVENT_Optimizer(BaseOptimizer):
             # Get prior likelihood and score
             prior_likelihood, _ = Prior.likelihood(Variable(seqs))
             smiles = seq_to_smiles(seqs, voc)
-            score = np.array(scoring_function(smiles))
+            score = np.array(scoring_function(smiles, batch = True))
 
             if self.finish:
                 print('max oracle hit')
@@ -195,8 +206,8 @@ class REINVENT_Optimizer(BaseOptimizer):
         # Create data; fit exact GP
         fingerprint_func = functools.partial(
             rdMolDescriptors.GetMorganFingerprintAsBitVect,
-            radius=config['fp_radius'],
-            nBits=config['fp_nbits'],
+            radius=int(config['fp_radius']),
+            nBits=int(config['fp_nbits'])
         )
         smiles_to_np_fingerprint = functools.partial(
             smiles_to_fp_array, fingerprint_func=fingerprint_func
