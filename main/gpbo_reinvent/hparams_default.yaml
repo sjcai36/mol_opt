@@ -8,3 +8,4 @@ max_bo_iter: 10000
 bo_batch_size: 1180
 fp_radius: 2
 fp_nbits: 4096
+initial_population_size: 340
