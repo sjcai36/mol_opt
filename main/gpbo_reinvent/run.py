@@ -46,7 +46,23 @@ class REINVENT_Optimizer(BaseOptimizer):
     def optimize_rnn(self, gp_model, acq_func_np, smiles_to_np_fingerprint, config):
         
         def _acq_func_smiles(smiles_list):
-            fp_array = np.stack(list(map(smiles_to_np_fingerprint, smiles_list)))
+            #deal with invalid strings
+            fp_array = list(map(smiles_to_np_fingerprint, smiles_list))
+            fp_array_filtered = []
+
+            reference = 0
+            while fp_array[reference] is None:
+                reference+=1
+                if reference >= len(fp_array):
+                    return 0
+            for i in fp_array:
+                if i is not None:
+                    fp_array_filtered.append(i)
+                else:
+                    fp_array_filtered.append(np.ones_like(fp_array[reference]))
+           # for f in fp_array_filtered:
+           #     print(f.shape)
+            fp_array = np.stack(fp_array_filtered)
             if gp_model.train_inputs[0].dtype == torch.float32:
                 fp_array = fp_array.astype(np.float32)
             elif gp_model.train_inputs[0].dtype == torch.float64:

@@ -103,11 +103,14 @@ class RNN():
         #     log_probs +=  NLLLoss(log_prob, x)
         #     entropy += -torch.sum((log_prob * prob), 1)
 
+       # print(x)
         for step in range(max_length):
             logits, h = self.rnn(x, h)
             # print('logits shape', logits.shape) ##### [128, 109]
             prob = F.softmax(logits, dim = 1)
             log_prob = F.log_softmax(logits, dim = 1)
+           # print(h)
+           # print(prob)
             x = torch.multinomial(prob, num_samples=1).view(-1)
             sequences.append(x.view(-1, 1))
             log_probs +=  NLLLoss(log_prob, x)
