@@ -47,6 +47,7 @@ class CachedFunction:
         outputs_not_cached = self._batch_f_eval(inputs_not_cached)
 
         # Add new values to cache
+       # print(outputs_not_cached)
         for x, y in zip(inputs_not_cached, outputs_not_cached):
             self._cache[x] = y
 

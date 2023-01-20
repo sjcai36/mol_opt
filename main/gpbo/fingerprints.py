@@ -26,3 +26,5 @@ def smiles_to_fp_array(smiles: str, fingerprint_func: callable = None) -> np.arr
     if mol:
         fp = fingerprint_func(mol)
         return _fp_to_array(fp).flatten()
+    else:
+        return np.ones((4096,)) #default fingerprint for invalid smiles

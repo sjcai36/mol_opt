@@ -43,26 +43,11 @@ class REINVENT_Optimizer(BaseOptimizer):
         super().__init__(args)
         self.model_name = "reinvent"
 
-    def optimize_rnn(self, gp_model, acq_func_np, smiles_to_np_fingerprint, config):
+    def optimize_rnn(self, gp_model, acq_func_np, smiles_to_np_fingerprint, config, stop_threshold = .05):
         
         def _acq_func_smiles(smiles_list):
-            #deal with invalid strings
-            fp_array = list(map(smiles_to_np_fingerprint, smiles_list))
-            fp_array_filtered = []
+            fp_array = np.stack(list(map(smiles_to_np_fingerprint, smiles_list)))
 
-            reference = 0
-            while fp_array[reference] is None:
-                reference+=1
-                if reference >= len(fp_array):
-                    return 0
-            for i in fp_array:
-                if i is not None:
-                    fp_array_filtered.append(i)
-                else:
-                    fp_array_filtered.append(np.ones_like(fp_array[reference]))
-           # for f in fp_array_filtered:
-           #     print(f.shape)
-            fp_array = np.stack(fp_array_filtered)
             if gp_model.train_inputs[0].dtype == torch.float32:
                 fp_array = fp_array.astype(np.float32)
             elif gp_model.train_inputs[0].dtype == torch.float64:
@@ -110,9 +95,9 @@ class REINVENT_Optimizer(BaseOptimizer):
 
         step = 0
         patience = 0
+        last_avg = 0
 
         while True:
-            
             # Sample from Agent
             seqs, agent_likelihood, entropy = Agent.sample(config['batch_size'])
 
@@ -127,9 +112,18 @@ class REINVENT_Optimizer(BaseOptimizer):
             smiles = seq_to_smiles(seqs, voc)
             score = np.array(scoring_function(smiles, batch = True))
 
-            if self.finish:
-                print('max oracle hit')
-                break 
+            #early stopping
+            avg_score = np.mean(score)
+            if np.abs(avg_score - last_avg) < stop_threshold:
+                break
+            #    patience += 1
+           # else:
+          #      patience = 0
+            
+        #    if patience > self.args.patience:
+         #       break
+
+            last_avg = avg_score
 
             # Calculate augmented likelihood
             augmented_likelihood = prior_likelihood.float() + config['sigma'] * Variable(score).float()
@@ -340,7 +334,7 @@ class REINVENT_Optimizer(BaseOptimizer):
                 assert (
                     len(smiles_batch) > 0
                 ), "Empty batch, shouldn't happen. Must be problem with GA."
-                
+               
                 smiles_batch_np = np.stack(
                     list(map(smiles_to_np_fingerprint, smiles_batch))
                 ).astype(x_train_np.dtype)
