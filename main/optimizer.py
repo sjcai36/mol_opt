@@ -339,10 +339,11 @@ class BaseOptimizer:
             
         sweep_id = wandb.sweep(hparam_space)
         # wandb.agent(sweep_id, function=_func, count=count, project=self.model_name + "_" + oracle.name)
-        wandb.agent(sweep_id, function=_func, count=count, entity="mol_opt")
+        wandb.agent(sweep_id, function=_func, count=count, entity="sjcai")
         
-    def optimize(self, oracle, config, seed=0, project="test"):
-        run = wandb.init(project=project, config=config, reinit=True, entity="mol_opt")
+    def optimize(self, oracle, config, seed=0, project="UROP"):
+
+        run = wandb.init(project=project, config=config, reinit=True, entity="sjcai")
         wandb.run.name = self.model_name + "_" + oracle.name + "_" + wandb.run.id
         np.random.seed(seed)
         torch.manual_seed(seed)

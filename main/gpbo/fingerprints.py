@@ -23,8 +23,8 @@ def smiles_to_fp_array(smiles: str, fingerprint_func: callable = None) -> np.arr
     if fingerprint_func is None:
         fingerprint_func = standard_fingerprint
     mol = Chem.MolFromSmiles(smiles)
+
+    # return fingerprint only if valid smiles
     if mol:
         fp = fingerprint_func(mol)
         return _fp_to_array(fp).flatten()
-    else:
-        return np.ones((4096,)) #default fingerprint for invalid smiles
