@@ -44,7 +44,7 @@ def acq_f_of_time(bo_iter, bo_state_dict):
 
 
 def smiles_to_fingerprint_stack(smiles_to_np_fingerprint, smiles_list, dtype=None):
-    # Returns stacked np fingerprint representations of smiles and index values of invalid smiles
+    # Returns stacked np fingerprint representations of valid smiles and index values of invalid smiles
 
     fp_stack = []
     invalid_idx = []
@@ -66,18 +66,10 @@ def smiles_to_fingerprint_stack(smiles_to_np_fingerprint, smiles_list, dtype=Non
 class REINVENT_Optimizer(BaseOptimizer):
     def __init__(self, args=None):
         super().__init__(args)
-        self.model_name = "reinvent"
+        self.model_name = "gpbo_reinvent"
 
-    def optimize_rnn(
-        self,
-        gp_model,
-        acq_func_np,
-        smiles_to_np_fingerprint,
-        config,
-        stop_threshold=0.05,
-    ):
+    def optimize_rnn(self, gp_model, acq_func_np, smiles_to_np_fingerprint, config):
         def _acq_func_smiles(smiles_list):
-            #  fp_array = np.stack(list(map(smiles_to_np_fingerprint, smiles_list)))
             fp_array, invalid_idx = smiles_to_fingerprint_stack(
                 smiles_to_np_fingerprint, smiles_list
             )
@@ -144,8 +136,9 @@ class REINVENT_Optimizer(BaseOptimizer):
         step = 0
         patience = 0
         last_avg = 0
+        max_iter = config["max_rnn_iter"]
 
-        while True:
+        for i in range(max_iter):
             # Sample from Agent
             seqs, agent_likelihood, entropy = Agent.sample(config["batch_size"])
 
@@ -161,9 +154,9 @@ class REINVENT_Optimizer(BaseOptimizer):
             score = np.array(scoring_function(smiles, batch=True))
 
             # early stopping
-            avg_score = np.mean(score)
-            if np.abs(avg_score - last_avg) < stop_threshold:
-                break
+            #  avg_score = np.mean(score)
+            # if np.abs(avg_score - last_avg) < stop_threshold:
+            #    break
             #    patience += 1
             # else:
             #      patience = 0
@@ -171,7 +164,7 @@ class REINVENT_Optimizer(BaseOptimizer):
             #    if patience > self.args.patience:
             #       break
 
-            last_avg = avg_score
+            #   last_avg = avg_score
 
             # Calculate augmented likelihood
             augmented_likelihood = (
@@ -286,11 +279,7 @@ class REINVENT_Optimizer(BaseOptimizer):
             smiles_to_fp_array, fingerprint_func=fingerprint_func
         )
         gp_train_smiles = list(smiles_pool)
-        # x_train = np.stack(
-        #    [smiles_to_np_fingerprint(s) for s in gp_train_smiles]
-        # ).astype(NP_DTYPE)
         values = self.oracle(gp_train_smiles)
-        # y_train = np.asarray(values).astype(NP_DTYPE)
 
         x_train, invalid_idx = smiles_to_fingerprint_stack(
             smiles_to_np_fingerprint, gp_train_smiles, NP_DTYPE
@@ -413,10 +402,6 @@ class REINVENT_Optimizer(BaseOptimizer):
                 assert (
                     len(smiles_batch) > 0
                 ), "Empty batch, shouldn't happen. Must be problem with GA."
-
-                # smiles_batch_np = np.stack(
-                #     list(map(smiles_to_np_fingerprint, smiles_batch))
-                # ).astype(x_train_np.dtype)
 
                 smiles_batch_np, invalid_idx = smiles_to_fingerprint_stack(
                     smiles_to_np_fingerprint, smiles_batch, x_train_np.dtype
