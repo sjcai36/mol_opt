@@ -28,3 +28,32 @@ def smiles_to_fp_array(smiles: str, fingerprint_func: callable = None) -> np.arr
     if mol:
         fp = fingerprint_func(mol)
         return _fp_to_array(fp).flatten()
+
+
+def smiles_to_fingerprint_stack(smiles_list, config, dtype=None):
+    # Returns stacked np fingerprint representations of valid smiles and index values of invalid smiles
+
+    fingerprint_func = functools.partial(
+        rdMolDescriptors.GetMorganFingerprintAsBitVect,
+        radius=config["fp_radius"],
+        nBits=config["fp_nbits"],
+    )
+    smiles_to_np_fingerprint = functools.partial(
+        smiles_to_fp_array, fingerprint_func=fingerprint_func
+    )
+
+    fp_stack = []
+    invalid_idx = []
+
+    for i, s in enumerate(smiles_list):
+        fp = smiles_to_np_fingerprint(s)
+        if fp is not None:
+            fp_stack.append(fp)
+        else:
+            invalid_idx.append(i)
+
+    fp_stack = np.stack(fp_stack)
+    if dtype:
+        fp_stack = fp_stack.astype(dtype)
+
+    return fp_stack, invalid_idx
