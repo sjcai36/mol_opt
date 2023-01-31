@@ -6,21 +6,25 @@ import torch
 import gpytorch
 from rdkit.Chem import rdMolDescriptors
 import sys
-sys.path.append('.')
+
+sys.path.append(".")
 from main.optimizer import BaseOptimizer
 
-from gp import (
+from main.gpbo_general.gp import (
     TanimotoGP,
     batch_predict_mu_var_numpy,
     fit_gp_hyperparameters,
 )
-from fingerprints import smiles_to_fp_array
-from bo import acquisition_funcs, gp_bo
-from function_utils import CachedBatchFunction
+from main.gpbo_general.fingerprints import smiles_to_fp_array
+from main.gpbo_general import acquisition_funcs
+from main.gpbo_general.function_utils import CachedFunction, CachedBatchFunction
 from graph_ga.graph_ga import run_ga_maximization
 
 
-def get_trained_gp(X_train, y_train,):
+def get_trained_gp(
+    X_train,
+    y_train,
+):
 
     # Fit model using type 2 maximum likelihood
     model = TanimotoGP(
@@ -28,6 +32,7 @@ def get_trained_gp(X_train, y_train,):
     )
     fit_gp_hyperparameters(model)
     return model
+
 
 # Optimize acquisition function with genetic algorithm
 def maximize_acquisition_func_ga(
@@ -48,7 +53,7 @@ def maximize_acquisition_func_ga(
         else:
             raise ValueError(gp_model.train_inputs[0].dtype)
         mu_pred, var_pred = batch_predict_mu_var_numpy(
-            gp_model, torch.as_tensor(fp_array), batch_size=2 ** 15
+            gp_model, torch.as_tensor(fp_array), batch_size=2**15
         )
         acq_vals = acq_func_np(mu_pred, var_pred)
         return list(map(float, acq_vals))
@@ -68,38 +73,39 @@ def maximize_acquisition_func_ga(
     smiles_out = [s for s, v in sm_ac_list]
     acq_out = [v for s, v in sm_ac_list]
     return smiles_out, acq_out
-    
+
+
 def acq_f_of_time(bo_iter, bo_state_dict):
     # Beta log-uniform between ~0.3 and ~30
     # beta = 10 ** (x ~ Uniform(-0.5, 1.5))
     beta_curr = 10 ** float(np.random.uniform(-0.5, 1.5))
-    gp_bo.logger.debug(f"Acquisition UCB beta set to {beta_curr:.2e}")
+    #  gp_bo.logger.debug(f"Acquisition UCB beta set to {beta_curr:.2e}")
     return functools.partial(
         acquisition_funcs.upper_confidence_bound,
-        beta=beta_curr ** 2,  # due to different conventions of what beta is in UCB
+        beta=beta_curr**2,  # due to different conventions of what beta is in UCB
     )
 
-class GPBO_Optimizer(BaseOptimizer):
 
+class GPBO_Optimizer(BaseOptimizer):
     def __init__(self, args=None):
         super().__init__(args)
         self.model_name = "gp_bo"
 
     def _optimize(self, oracle, config):
-        
+
         # Functions to do retraining
         def get_inducing_indices(y):
             """
-            To reduce the training cost of GP model, we only select 
+            To reduce the training cost of GP model, we only select
             top-n_train_gp_best and n_train_gp_rand random samples from data.
             """
             argsort = np.argsort(-y)  # Biggest first
-            best_idxs = list(argsort[: config['n_train_gp_best']])
-            remaining_idxs = list(argsort[config['n_train_gp_best'] :])
-            if len(remaining_idxs) <= config['n_train_gp_rand']:
+            best_idxs = list(argsort[: config["n_train_gp_best"]])
+            remaining_idxs = list(argsort[config["n_train_gp_best"] :])
+            if len(remaining_idxs) <= config["n_train_gp_rand"]:
                 rand_idxs = remaining_idxs
             else:
-                rand_idxs = random.sample(remaining_idxs, k=config['n_train_gp_rand'])
+                rand_idxs = random.sample(remaining_idxs, k=config["n_train_gp_rand"])
             return sorted(best_idxs + rand_idxs)
 
         def refit_gp_change_subset(bo_iter, gp_model, bo_state_dict):
@@ -121,40 +127,42 @@ class GPBO_Optimizer(BaseOptimizer):
         # Load start smiles
         if self.smi_file is not None:
             # Exploitation run
-            starting_population = self.all_smiles[:config["initial_population_size"]]
+            starting_population = self.all_smiles[: config["initial_population_size"]]
         else:
             # Exploration run
-            starting_population = np.random.choice(self.all_smiles, config["initial_population_size"])
+            starting_population = np.random.choice(
+                self.all_smiles, config["initial_population_size"]
+            )
 
         smiles_pool = set(starting_population)
 
         # Create data; fit exact GP
         fingerprint_func = functools.partial(
             rdMolDescriptors.GetMorganFingerprintAsBitVect,
-            radius=config['fp_radius'],
-            nBits=config['fp_nbits'],
+            radius=config["fp_radius"],
+            nBits=config["fp_nbits"],
         )
         smiles_to_np_fingerprint = functools.partial(
             smiles_to_fp_array, fingerprint_func=fingerprint_func
         )
         gp_train_smiles = list(smiles_pool)
-        x_train = np.stack([smiles_to_np_fingerprint(s) for s in gp_train_smiles]).astype(NP_DTYPE)
+        x_train = np.stack(
+            [smiles_to_np_fingerprint(s) for s in gp_train_smiles]
+        ).astype(NP_DTYPE)
         values = self.oracle(gp_train_smiles)
         y_train = np.asarray(values).astype(NP_DTYPE)
 
         ind_idx_start = get_inducing_indices(y_train)
         x_train = torch.as_tensor(x_train)
         y_train = torch.as_tensor(y_train)
-        gp_model = get_trained_gp(
-            x_train[ind_idx_start], y_train[ind_idx_start]
-        )
+        gp_model = get_trained_gp(x_train[ind_idx_start], y_train[ind_idx_start])
 
-        # Run GP-BO           
-        with gpytorch.settings.sgpr_diagonal_correction(False):    
+        # Run GP-BO
+        with gpytorch.settings.sgpr_diagonal_correction(False):
             # Set up which SMILES the GP should be trained on
             # If not given, it is assumed that the GP is trained on all known smiles
-            start_cache = self.oracle.mol_buffer 
-            start_cache_size = len(self.oracle) 
+            start_cache = self.oracle.mol_buffer
+            start_cache_size = len(self.oracle)
             if gp_train_smiles is None:
                 #     "No GP training SMILES given. "
                 #     f"Will default to training on the {start_cache_size} SMILES with known scores."
@@ -182,7 +190,9 @@ class GPBO_Optimizer(BaseOptimizer):
                 del random_smiles
 
             # Evaluate scores of training data (ideally should all be known)
-            num_train_data_not_known = len(gp_train_smiles_set - set(start_cache.keys()))
+            num_train_data_not_known = len(
+                gp_train_smiles_set - set(start_cache.keys())
+            )
             gp_train_smiles_list = list(gp_train_smiles_set)
             gp_train_smiles_scores = self.oracle(list(gp_train_smiles_set))
 
@@ -209,14 +219,16 @@ class GPBO_Optimizer(BaseOptimizer):
             )
 
             # Initial fitting of GP hyperparameters
-            refit_gp_change_subset(bo_iter=0, gp_model=gp_model, bo_state_dict=bo_state_dict)
+            refit_gp_change_subset(
+                bo_iter=0, gp_model=gp_model, bo_state_dict=bo_state_dict
+            )
 
             # Actual BO loop
-            for bo_iter in range(1, config['max_bo_iter'] + 1):
+            for bo_iter in range(1, config["max_bo_iter"] + 1):
 
-                if self.finish: 
-                    break 
-                    
+                if self.finish:
+                    break
+
                 # Make starting population for GA from a combination of
                 #     1) best `ga_pool_num_best` known scores
                 #     2) Up to `ga_pool_num_carryover` promising SMILES from last iteration
@@ -224,7 +236,7 @@ class GPBO_Optimizer(BaseOptimizer):
                 top_smiles_at_bo_iter_start = [
                     s
                     for _, s in heapq.nlargest(
-                        config['ga_pool_num_best'],
+                        config["ga_pool_num_best"],
                         [
                             (self.oracle(smiles), smiles)
                             for smiles in self.oracle.mol_buffer.keys()
@@ -233,15 +245,19 @@ class GPBO_Optimizer(BaseOptimizer):
                 ]
                 ga_start_smiles = set(top_smiles_at_bo_iter_start)  # start with best
                 ga_start_smiles.update(carryover_smiles_pool)  # add carryover
-                if len(ga_start_smiles) < config['max_ga_start_population_size']:
+                if len(ga_start_smiles) < config["max_ga_start_population_size"]:
                     samples_from_pool = random.sample(
-                        smiles_pool, min(len(smiles_pool), config['max_ga_start_population_size'])
+                        smiles_pool,
+                        min(len(smiles_pool), config["max_ga_start_population_size"]),
                     )
 
                     # Pad with random SMILES until full
                     for s in samples_from_pool:
                         ga_start_smiles.add(s)
-                        if len(ga_start_smiles) >= config['max_ga_start_population_size']:
+                        if (
+                            len(ga_start_smiles)
+                            >= config["max_ga_start_population_size"]
+                        ):
                             break
                     del samples_from_pool
 
@@ -255,10 +271,10 @@ class GPBO_Optimizer(BaseOptimizer):
                     acq_func_np=curr_acq_func,
                     starting_smiles=list(ga_start_smiles),
                     smiles_to_np_fingerprint=smiles_to_np_fingerprint,
-                    max_generations=config['ga_max_generations'],
-                    population_size=config['ga_population_size'],
-                    offspring_size=config['ga_offspring_size'],
-                    mutation_rate=config['ga_mutation_rate'],
+                    max_generations=config["ga_max_generations"],
+                    population_size=config["ga_population_size"],
+                    offspring_size=config["ga_offspring_size"],
+                    mutation_rate=config["ga_mutation_rate"],
                     num_cpu=self.n_jobs,
                 )
 
@@ -275,14 +291,14 @@ class GPBO_Optimizer(BaseOptimizer):
                     ):
                         smiles_batch.append(candidate_smiles)
                         smiles_batch_acq.append(acq)
-                    if len(smiles_batch) >= config['bo_batch_size']:
+                    if len(smiles_batch) >= config["bo_batch_size"]:
                         break
                 del candidate_smiles, acq
 
                 assert (
                     len(smiles_batch) > 0
                 ), "Empty batch, shouldn't happen. Must be problem with GA."
-                
+
                 smiles_batch_np = np.stack(
                     list(map(smiles_to_np_fingerprint, smiles_batch))
                 ).astype(x_train_np.dtype)
@@ -291,7 +307,7 @@ class GPBO_Optimizer(BaseOptimizer):
                 smiles_batch_mu_pre, smiles_batch_var_pre = batch_predict_mu_var_numpy(
                     gp_model, torch.as_tensor(smiles_batch_np)
                 )
-                
+
                 # Score these SMILES
                 smiles_batch_scores = self.oracle(smiles_batch)
 
@@ -300,7 +316,10 @@ class GPBO_Optimizer(BaseOptimizer):
                 gp_train_smiles_set.update(gp_train_smiles_list)
                 x_train_np = np.concatenate([x_train_np, smiles_batch_np], axis=0)
                 y_train_np = np.concatenate(
-                    [y_train_np, np.asarray(smiles_batch_scores, dtype=y_train_np.dtype)],
+                    [
+                        y_train_np,
+                        np.asarray(smiles_batch_scores, dtype=y_train_np.dtype),
+                    ],
                     axis=0,
                 )
                 gp_model.set_train_data(
@@ -314,7 +333,7 @@ class GPBO_Optimizer(BaseOptimizer):
                 carryover_smiles_pool = set()
                 for s in acq_smiles:
                     if (
-                        len(carryover_smiles_pool) < config['ga_pool_num_carryover']
+                        len(carryover_smiles_pool) < config["ga_pool_num_carryover"]
                         and s not in gp_train_smiles_set
                     ):
                         carryover_smiles_pool.add(s)
@@ -322,7 +341,10 @@ class GPBO_Optimizer(BaseOptimizer):
                         break
 
                 # Get predictions about SMILES batch AFTER training on it
-                smiles_batch_mu_post1, smiles_batch_var_post1 = batch_predict_mu_var_numpy(
+                (
+                    smiles_batch_mu_post1,
+                    smiles_batch_var_post1,
+                ) = batch_predict_mu_var_numpy(
                     gp_model, torch.as_tensor(smiles_batch_np)
                 )
 
@@ -354,4 +376,3 @@ class GPBO_Optimizer(BaseOptimizer):
 
                     del pred_dict, pred_dict_post1, res, transformed_score
                 bo_query_res.extend(batch_results)
-

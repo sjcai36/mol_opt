@@ -14,10 +14,14 @@ import torch
 import random
 import functools
 import gpytorch
-from main.gpbo.gp import TanimotoGP, batch_predict_mu_var_numpy, fit_gp_hyperparameters
-from main.gpbo.fingerprints import smiles_to_fp_array
-from main.gpbo.bo import acquisition_funcs
-from main.gpbo.function_utils import CachedFunction, CachedBatchFunction
+from main.gpbo_general.gp import (
+    TanimotoGP,
+    batch_predict_mu_var_numpy,
+    fit_gp_hyperparameters,
+)
+from main.gpbo_general.fingerprints import smiles_to_fp_array
+from main.gpbo_general import acquisition_funcs
+from main.gpbo_general.function_utils import CachedFunction, CachedBatchFunction
 
 
 def get_trained_gp(

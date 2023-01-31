@@ -6,7 +6,7 @@ import numpy as np
 from rdkit import Chem, RDLogger
 import joblib
 
-from main.utils.function_utils import CachedFunction
+from main.gpbo_general.function_utils import CachedFunction
 from . import crossover as co, mutate as mu
 
 

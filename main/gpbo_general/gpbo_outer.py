@@ -32,9 +32,9 @@ def get_trained_gp(
 
 
 class GPBO_Optimizer(BaseOptimizer):
-    def __init__(self, args=None, optimizer="reinvent"):
+    def __init__(self, optimizer, args=None):
         super().__init__(args)
-        self.model_name = "gpbo" + optimizer
+        self.model_name = "gpbo_" + optimizer
         self.internal_optimizer = choose_optimizer(method=optimizer, args=args)
 
     def _acq_func_smiles(self, smiles_list, gp_model, acq_func_np, config):
@@ -193,12 +193,11 @@ class GPBO_Optimizer(BaseOptimizer):
                 # Current acquisition function
                 curr_acq_func = acq_f_of_time(bo_iter, bo_state_dict)
 
-                scoring_function = (
-                    functools.partial(
-                        self._acq_func_smiles,
-                        gp_model=gp_model,
-                        acq_func_np=curr_acq_func,
-                    ),
+                scoring_function = functools.partial(
+                    self._acq_func_smiles,
+                    gp_model=gp_model,
+                    acq_func_np=curr_acq_func,
+                    config=config,
                 )
 
                 scoring_function = CachedBatchFunction(scoring_function)

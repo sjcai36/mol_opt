@@ -52,14 +52,17 @@ def main():
 
     args.method = args.method.lower()
 
+    optimizer = choose_optimizer(args=args)
+
     path_main = os.path.dirname(os.path.realpath(__file__))
-    path_main = os.path.join(path_main, "main", args.method)
+    if "gpbo_" in optimizer.model_name:
+        path_main = os.path.join(path_main, "main", "gpbo_general")
+    else:
+        path_main = os.path.join(path_main, "main", optimizer.model_name)
 
     sys.path.append(path_main)
 
     print(args.method)
-    # Add method name here when adding new ones
-    optimizer = choose_optimizer(args=args)
 
     if args.output_dir is None:
         args.output_dir = os.path.join(path_main, "results")
@@ -84,7 +87,6 @@ def main():
                 )
 
             oracle = Oracle(name=oracle_name)
-            #   optimizer = Optimizer(args=args)
 
             if args.task == "simple":
                 # optimizer.optimize(oracle=oracle, config=config_default, seed=args.seed)
@@ -119,7 +121,6 @@ def main():
             )
 
         oracles = [Oracle(name=oracle_name) for oracle_name in args.oracles]
-        #   optimizer = Optimizer(args=args)
 
         optimizer.hparam_tune(
             oracles=oracles,
