@@ -72,29 +72,7 @@ class REINVENT_Optimizer(BaseOptimizer):
         super().__init__(args)
         self.model_name = "gpbo_reinvent"
 
-    def optimize_rnn(self, gp_model, acq_func_np, smiles_to_np_fingerprint, config):
-        def _acq_func_smiles(smiles_list):
-            fp_array, invalid_idx = smiles_to_fingerprint_stack(
-                smiles_to_np_fingerprint, smiles_list
-            )
-
-            if gp_model.train_inputs[0].dtype == torch.float32:
-                fp_array = fp_array.astype(np.float32)
-            elif gp_model.train_inputs[0].dtype == torch.float64:
-                fp_array = fp_array.astype(np.float64)
-            else:
-                raise ValueError(gp_model.train_inputs[0].dtype)
-            mu_pred, var_pred = batch_predict_mu_var_numpy(
-                gp_model, torch.as_tensor(fp_array), batch_size=2**15
-            )
-            acq_vals = acq_func_np(mu_pred, var_pred)
-            acq_list = list(map(float, acq_vals))
-            for i in invalid_idx:
-                acq_list = acq_list[:i] + [0] + acq_list[i:]
-            return acq_list
-
-        scoring_function = CachedBatchFunction(_acq_func_smiles)
-
+    def initialize_rnn(self, config):
         path_here = os.path.dirname(os.path.realpath(__file__))
         restore_prior_from = os.path.join(path_here, "data/Prior.ckpt")
         restore_agent_from = restore_prior_from
@@ -135,16 +113,61 @@ class REINVENT_Optimizer(BaseOptimizer):
         # therefor not as theoretically sound as it is for value based RL, but it seems to work well.
         experience = Experience(voc)
 
-        print("Model initialized, starting training...")
+        print("Model initialized")
+        self.Prior = Prior
+        self.Agent = Agent
+        self.experience = experience
+        self.optimizer = optimizer
+        self.voc = voc
+
+
+    def optimize_rnn(self, gp_model, acq_func_np, smiles_to_np_fingerprint, config):
+        def _acq_func_smiles(smiles_list):
+            try:
+                fp_array, invalid_idx = smiles_to_fingerprint_stack(
+                    smiles_to_np_fingerprint, smiles_list
+                )
+
+                if gp_model.train_inputs[0].dtype == torch.float32:
+                    fp_array = fp_array.astype(np.float32)
+                elif gp_model.train_inputs[0].dtype == torch.float64:
+                    fp_array = fp_array.astype(np.float64)
+                else:
+                    raise ValueError(gp_model.train_inputs[0].dtype)
+                mu_pred, var_pred = batch_predict_mu_var_numpy(
+                    gp_model, torch.as_tensor(fp_array), batch_size=2**15
+                )
+                acq_vals = acq_func_np(mu_pred, var_pred)
+
+                # acq_list = []
+                # invalid_idx = set(invalid_idx)
+                # invalid_so_far = 0
+                # for i in range(len(smiles_list)):
+                #     if i in invalid_idx:
+                #         acq_list.append(0)
+                #         invalid_so_far += 1
+                #     else:
+                #         acq_list.append(float(acq_vals[i-invalid_so_far]))
+                
+                acq_list = list(map(float, acq_vals))
+                for i in invalid_idx:
+                     acq_list = acq_list[:i] + [0] + acq_list[i:]
+                return acq_list
+            except:
+                return [0]*len(smiles_list)
+
+        scoring_function = CachedBatchFunction(_acq_func_smiles)
+
+        print("Starting training...")
 
         step = 0
         patience = 0
         last_avg = 0
-        max_iter = config["max_rnn_iter"]
+        max_iter = config["max_inner_loop_iter"]
 
         for i in range(max_iter):
             # Sample from Agent
-            seqs, agent_likelihood, entropy = Agent.sample(config["batch_size"])
+            seqs, agent_likelihood, entropy = self.Agent.sample(config["batch_size"])
 
             # Remove duplicates, ie only consider unique seqs
             unique_idxs = unique(seqs)
@@ -153,22 +176,9 @@ class REINVENT_Optimizer(BaseOptimizer):
             entropy = entropy[unique_idxs]
 
             # Get prior likelihood and score
-            prior_likelihood, _ = Prior.likelihood(Variable(seqs))
-            smiles = seq_to_smiles(seqs, voc)
+            prior_likelihood, _ = self.Prior.likelihood(Variable(seqs))
+            smiles = seq_to_smiles(seqs, self.voc)
             score = np.array(scoring_function(smiles, batch=True))
-
-            # early stopping
-            #  avg_score = np.mean(score)
-            # if np.abs(avg_score - last_avg) < stop_threshold:
-            #    break
-            #    patience += 1
-            # else:
-            #      patience = 0
-
-            #    if patience > self.args.patience:
-            #       break
-
-            #   last_avg = avg_score
 
             # Calculate augmented likelihood
             augmented_likelihood = (
@@ -180,12 +190,12 @@ class REINVENT_Optimizer(BaseOptimizer):
             # First sample
             if (
                 config["experience_replay"]
-                and len(experience) > config["experience_replay"]
+                and len(self.experience) > config["experience_replay"]
             ):
-                exp_seqs, exp_score, exp_prior_likelihood = experience.sample(
+                exp_seqs, exp_score, exp_prior_likelihood = self.experience.sample(
                     config["experience_replay"]
                 )
-                exp_agent_likelihood, exp_entropy = Agent.likelihood(exp_seqs.long())
+                exp_agent_likelihood, exp_entropy = self.Agent.likelihood(exp_seqs.long())
                 exp_augmented_likelihood = (
                     exp_prior_likelihood + config["sigma"] * exp_score
                 )
@@ -200,7 +210,7 @@ class REINVENT_Optimizer(BaseOptimizer):
             # Then add new experience
             prior_likelihood = prior_likelihood.data.cpu().numpy()
             new_experience = zip(smiles, score, prior_likelihood)
-            experience.add_experience(new_experience)
+            self.experience.add_experience(new_experience)
 
             # Calculate loss
             loss = loss.mean()
@@ -210,9 +220,9 @@ class REINVENT_Optimizer(BaseOptimizer):
             loss += 5 * 1e3 * loss_p
 
             # Calculate gradients and make an update to the network weights
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
             loss.backward()
-            optimizer.step()
+            self.optimizer.step()
 
             # Convert to numpy arrays so that we can print them
             augmented_likelihood = augmented_likelihood.data.cpu().numpy()
@@ -329,21 +339,18 @@ class REINVENT_Optimizer(BaseOptimizer):
                 del random_smiles
 
             # Evaluate scores of training data (ideally should all be known)
-            num_train_data_not_known = len(
-                gp_train_smiles_set - set(start_cache.keys())
-            )
+          # num_train_data_not_known = len(
+           #     gp_train_smiles_set - set(start_cache.keys())
+            #)
             gp_train_smiles_list = list(gp_train_smiles_set)
             gp_train_smiles_scores = self.oracle(list(gp_train_smiles_set))
 
             # Store GP training data
-            # x_train_np = np.stack(
-            #    list(map(smiles_to_np_fingerprint, gp_train_smiles_list))
-            # ).astype(NP_DTYPE)
-            y_train_np = np.array(gp_train_smiles_scores).astype(NP_DTYPE)
-
             x_train_np, invalid_idx = smiles_to_fingerprint_stack(
                 smiles_to_np_fingerprint, gp_train_smiles_list, NP_DTYPE
             )
+
+            y_train_np = np.array(gp_train_smiles_scores).astype(NP_DTYPE)
             y_train_np = np.delete(y_train_np, invalid_idx)
 
             print("Initial GP model training")
@@ -358,7 +365,7 @@ class REINVENT_Optimizer(BaseOptimizer):
             bo_query_res = list()
             bo_state_dict = dict(
                 gp_model=gp_model,
-                gp_train_smiles_list=gp_train_smiles_list,
+                gp_train_smiles_set=gp_train_smiles_set,
                 bo_query_res=bo_query_res,
                 scoring_function=self.oracle,
             )
@@ -367,6 +374,8 @@ class REINVENT_Optimizer(BaseOptimizer):
             refit_gp_change_subset(
                 bo_iter=0, gp_model=gp_model, bo_state_dict=bo_state_dict
             )
+
+            self.initialize_rnn(config)
 
             # Actual BO loop
             for bo_iter in range(1, config["max_bo_iter"] + 1):
@@ -420,8 +429,8 @@ class REINVENT_Optimizer(BaseOptimizer):
                 smiles_batch_scores = self.oracle(smiles_batch)
 
                 # Add new points to GP training data
-                gp_train_smiles_list += smiles_batch
-                gp_train_smiles_set.update(gp_train_smiles_list)
+              #  gp_train_smiles_list += smiles_batch
+                gp_train_smiles_set.update(smiles_batch)
                 x_train_np = np.concatenate([x_train_np, smiles_batch_np], axis=0)
                 y_invalid_offset = y_train_np.shape[0]
                 y_train_np = np.concatenate(
