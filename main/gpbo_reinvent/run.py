@@ -19,7 +19,7 @@ from main.gpbo_general.gp import (
     batch_predict_mu_var_numpy,
     fit_gp_hyperparameters,
 )
-from main.gpbo_general.fingerprints import smiles_to_fp_array
+from main.gpbo_general.fingerprints import smiles_to_fp_array, smiles_to_fingerprint_stack
 from main.gpbo_general import acquisition_funcs
 from main.gpbo_general.function_utils import CachedFunction, CachedBatchFunction
 
@@ -37,7 +37,7 @@ def get_trained_gp(
     return model
 
 
-def acq_f_of_time(bo_iter, bo_state_dict):
+def acq_f_of_time(bo_state_dict):
     # Beta log-uniform between ~0.3 and ~30
     # beta = 10 ** (x ~ Uniform(-0.5, 1.5))
     beta_curr = 10 ** float(np.random.uniform(-0.5, 1.5))
@@ -46,25 +46,34 @@ def acq_f_of_time(bo_iter, bo_state_dict):
         beta=beta_curr**2,  # due to different conventions of what beta is in UCB
     )
 
+def _acq_func_smiles(smiles_list, gp_model, acq_func_np, config):
+        fp_array, invalid_idx = smiles_to_fingerprint_stack(smiles_list, config)
 
-def smiles_to_fingerprint_stack(smiles_to_np_fingerprint, smiles_list, dtype=None):
-    # Returns stacked np fingerprint representations of valid smiles and index values of invalid smiles
-
-    fp_stack = []
-    invalid_idx = []
-
-    for i, s in enumerate(smiles_list):
-        fp = smiles_to_np_fingerprint(s)
-        if fp is not None:
-            fp_stack.append(fp)
+        if gp_model.train_inputs[0].dtype == torch.float32:
+            fp_array = fp_array.astype(np.float32)
+        elif gp_model.train_inputs[0].dtype == torch.float64:
+            fp_array = fp_array.astype(np.float64)
         else:
-            invalid_idx.append(i)
+            raise ValueError(gp_model.train_inputs[0].dtype)
+        mu_pred, var_pred = batch_predict_mu_var_numpy(
+            gp_model, torch.as_tensor(fp_array), batch_size=2**15
+        )
+        acq_vals = acq_func_np(mu_pred, var_pred)
 
-    fp_stack = np.stack(fp_stack)
-    if dtype:
-        fp_stack = fp_stack.astype(dtype)
+        # acq_list = []
+        # invalid_idx = set(invalid_idx)
+        # invalid_so_far = 0
+        # for i in range(len(smiles_list)):
+        #     if i in invalid_idx:
+        #         acq_list.append(0)
+        #         invalid_so_far += 1
+        #     else:
+        #         acq_list.append(float(acq_vals[i-invalid_so_far]))
 
-    return fp_stack, invalid_idx
+        acq_list = list(map(float, acq_vals))
+        for i in invalid_idx:
+            acq_list = acq_list[:i] + [0] + acq_list[i:]
+        return acq_list
 
 
 class REINVENT_Optimizer(BaseOptimizer):
@@ -72,7 +81,7 @@ class REINVENT_Optimizer(BaseOptimizer):
         super().__init__(args)
         self.model_name = "gpbo_reinvent"
 
-    def initialize_rnn(self, config):
+    def initialize_rnn(self, config, gp_model, acq_func_np):
         path_here = os.path.dirname(os.path.realpath(__file__))
         restore_prior_from = os.path.join(path_here, "data/Prior.ckpt")
         restore_agent_from = restore_prior_from
@@ -113,56 +122,26 @@ class REINVENT_Optimizer(BaseOptimizer):
         # therefor not as theoretically sound as it is for value based RL, but it seems to work well.
         experience = Experience(voc)
 
+        scoring_function = functools.partial(
+                    _acq_func_smiles,
+                    gp_model=gp_model,
+                    acq_func_np=acq_func_np,
+                    config=config,
+                )
+
         print("Model initialized")
         self.Prior = Prior
         self.Agent = Agent
         self.experience = experience
         self.optimizer = optimizer
         self.voc = voc
+        self.scoring_function = CachedBatchFunction(scoring_function)
 
 
     def optimize_rnn(self, gp_model, acq_func_np, smiles_to_np_fingerprint, config):
-        def _acq_func_smiles(smiles_list):
-            try:
-                fp_array, invalid_idx = smiles_to_fingerprint_stack(
-                    smiles_to_np_fingerprint, smiles_list
-                )
-
-                if gp_model.train_inputs[0].dtype == torch.float32:
-                    fp_array = fp_array.astype(np.float32)
-                elif gp_model.train_inputs[0].dtype == torch.float64:
-                    fp_array = fp_array.astype(np.float64)
-                else:
-                    raise ValueError(gp_model.train_inputs[0].dtype)
-                mu_pred, var_pred = batch_predict_mu_var_numpy(
-                    gp_model, torch.as_tensor(fp_array), batch_size=2**15
-                )
-                acq_vals = acq_func_np(mu_pred, var_pred)
-
-                # acq_list = []
-                # invalid_idx = set(invalid_idx)
-                # invalid_so_far = 0
-                # for i in range(len(smiles_list)):
-                #     if i in invalid_idx:
-                #         acq_list.append(0)
-                #         invalid_so_far += 1
-                #     else:
-                #         acq_list.append(float(acq_vals[i-invalid_so_far]))
-                
-                acq_list = list(map(float, acq_vals))
-                for i in invalid_idx:
-                     acq_list = acq_list[:i] + [0] + acq_list[i:]
-                return acq_list
-            except:
-                return [0]*len(smiles_list)
-
-        scoring_function = CachedBatchFunction(_acq_func_smiles)
-
+        
         print("Starting training...")
 
-        step = 0
-        patience = 0
-        last_avg = 0
         max_iter = config["max_inner_loop_iter"]
 
         for i in range(max_iter):
@@ -178,7 +157,7 @@ class REINVENT_Optimizer(BaseOptimizer):
             # Get prior likelihood and score
             prior_likelihood, _ = self.Prior.likelihood(Variable(seqs))
             smiles = seq_to_smiles(seqs, self.voc)
-            score = np.array(scoring_function(smiles, batch=True))
+            score = np.array(self.scoring_function(smiles, batch=True))
 
             # Calculate augmented likelihood
             augmented_likelihood = (
@@ -228,12 +207,11 @@ class REINVENT_Optimizer(BaseOptimizer):
             augmented_likelihood = augmented_likelihood.data.cpu().numpy()
             agent_likelihood = agent_likelihood.data.cpu().numpy()
 
-            step += 1
-
-        smiles_2_acq_dict = scoring_function.cache
+        smiles_2_acq_dict = self.scoring_function.cache
 
         # Sort and return results (highest acq func first)
         sm_ac_list = list(smiles_2_acq_dict.items())
+        print(len(sm_ac_list))
         sm_ac_list.sort(reverse=True, key=lambda t: t[1])
         smiles_out = [s for s, v in sm_ac_list]
         acq_out = [v for s, v in sm_ac_list]
@@ -296,7 +274,7 @@ class REINVENT_Optimizer(BaseOptimizer):
         values = self.oracle(gp_train_smiles)
 
         x_train, invalid_idx = smiles_to_fingerprint_stack(
-            smiles_to_np_fingerprint, gp_train_smiles, NP_DTYPE
+            smiles_list = gp_train_smiles, config = config, dtype = NP_DTYPE
         )
         y_train = np.asarray(values).astype(NP_DTYPE)
         y_train = np.delete(y_train, invalid_idx)
@@ -347,7 +325,7 @@ class REINVENT_Optimizer(BaseOptimizer):
 
             # Store GP training data
             x_train_np, invalid_idx = smiles_to_fingerprint_stack(
-                smiles_to_np_fingerprint, gp_train_smiles_list, NP_DTYPE
+                gp_train_smiles_list, config, NP_DTYPE
             )
 
             y_train_np = np.array(gp_train_smiles_scores).astype(NP_DTYPE)
@@ -375,16 +353,16 @@ class REINVENT_Optimizer(BaseOptimizer):
                 bo_iter=0, gp_model=gp_model, bo_state_dict=bo_state_dict
             )
 
-            self.initialize_rnn(config)
+            # Current acquisition function
+            curr_acq_func = acq_f_of_time(bo_state_dict)
+
+            self.initialize_rnn(config, gp_model, acq_func_np=curr_acq_func)
 
             # Actual BO loop
             for bo_iter in range(1, config["max_bo_iter"] + 1):
 
                 if self.finish:
                     break
-
-                # Current acquisition function
-                curr_acq_func = acq_f_of_time(bo_iter, bo_state_dict)
 
                 # Optimize acquisition function
                 print("Maximizing BO surrogate...")
@@ -417,7 +395,7 @@ class REINVENT_Optimizer(BaseOptimizer):
                 ), "Empty batch, shouldn't happen. Must be problem with GA."
 
                 smiles_batch_np, invalid_idx = smiles_to_fingerprint_stack(
-                    smiles_to_np_fingerprint, smiles_batch, x_train_np.dtype
+                    smiles_batch, config, x_train_np.dtype
                 )
 
                 # Get predictions about SMILES batch before training on it
