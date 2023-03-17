@@ -11,24 +11,16 @@ import torch
 import random
 import functools
 import gpytorch
-from gp import TanimotoGP, batch_predict_mu_var_numpy, fit_gp_hyperparameters
+from gp import (
+    TanimotoGP,
+    batch_predict_mu_var_numpy,
+    fit_gp_hyperparameters,
+)
+from gp.gp_utils import get_trained_gp
 from fingerprints import smiles_to_fingerprint_stack, smiles_to_fp_array
 from acquisition_funcs import acq_f_of_time
 from function_utils import CachedFunction, CachedBatchFunction
 from main.utils.choose_optimizer import choose_optimizer
-
-
-def get_trained_gp(
-    X_train,
-    y_train,
-):
-
-    # Fit model using type 2 maximum likelihood
-    model = TanimotoGP(
-        train_x=torch.as_tensor(X_train), train_y=torch.as_tensor(y_train)
-    )
-    fit_gp_hyperparameters(model)
-    return model
 
 
 class GPBO_Optimizer(BaseOptimizer):

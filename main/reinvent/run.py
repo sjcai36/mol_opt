@@ -10,16 +10,21 @@ from utils import Variable, seq_to_smiles, unique
 from model import RNN
 from data_structs import Vocabulary, Experience
 import torch
+from main.gpbo_general.function_utils import CachedFunction, CachedBatchFunction
 
 
 class REINVENT_Optimizer(BaseOptimizer):
     def __init__(self, args=None):
         super().__init__(args)
         self.model_name = "reinvent"
+        self.Prior = None
+        self.Agent = None
+        self.experience = None
+        self.optimizer = None
+        self.voc = None
+        self.scoring_function = None
 
-    def _optimize(
-        self, oracle=None, config=None, inner_loop=False, scoring_function=None
-    ):
+    def initialize_rnn(self, oracle=None, config=None, inner_loop=False, scoring_function=None):
 
         if not inner_loop:
             self.oracle.assign_evaluator(oracle)
@@ -64,13 +69,35 @@ class REINVENT_Optimizer(BaseOptimizer):
         # therefor not as theoretically sound as it is for value based RL, but it seems to work well.
         experience = Experience(voc)
 
-        print("Model initialized, starting training...")
+        print("Model initialized")
+        self.Prior = Prior
+        self.Agent = Agent
+        self.experience = experience
+        self.optimizer = optimizer
+        self.voc = voc
+        self.scoring_function = scoring_function#CachedBatchFunction(scoring_function)
+
+
+    def _optimize(
+        self, oracle=None, config=None, inner_loop=False, scoring_function=None
+    ):
+        if self.Prior == None:
+            self.initialize_rnn(oracle, config, inner_loop, scoring_function)
+        
+        Prior = self.Prior
+        Agent = self.Agent
+        experience = self.experience
+        optimizer = self.optimizer
+        voc = self.voc
+        scoring_function = self.scoring_function
 
         step = 0
         patience = 0
         max_iter = config["max_inner_loop_iter"]
         iter = 0
 
+        print("optimizing RNN")
+        
         while True:
             if inner_loop:
                 iter += 1

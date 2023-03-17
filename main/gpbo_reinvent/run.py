@@ -142,7 +142,7 @@ class REINVENT_Optimizer(BaseOptimizer):
         
         print("Starting training...")
 
-        max_iter = config["max_inner_loop_iter"]
+        max_iter = config["max_rnn_iter"]
 
         for i in range(max_iter):
             # Sample from Agent

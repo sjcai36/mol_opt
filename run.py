@@ -27,7 +27,7 @@ def main():
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--max_oracle_calls", type=int, default=10000)
-    parser.add_argument("--freq_log", type=int, default=100)
+    parser.add_argument("--freq_log", type=int, default=500)
     parser.add_argument("--n_runs", type=int, default=5)
     # parser.add_argument('--seed', type=int, default=0)
     parser.add_argument("--seed", type=int, nargs="+", default=[0])
@@ -80,6 +80,8 @@ def main():
             print(f"Optimizing oracle function: {oracle_name}")
 
             try:
+                print(path_main)
+                print(args.config_default)
                 config_default = yaml.safe_load(open(args.config_default))
             except:
                 config_default = yaml.safe_load(

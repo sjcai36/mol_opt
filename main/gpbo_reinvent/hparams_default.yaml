@@ -1,6 +1,6 @@
 learning_rate: 0.0005
 batch_size: 64
-sigma: 500
+sigma: 750
 experience_replay: 24
 n_train_gp_best: 2200
 n_train_gp_rand: 1350
@@ -9,4 +9,4 @@ bo_batch_size: 1180
 fp_radius: 2
 fp_nbits: 4096
 initial_population_size: 340
-max_rnn_iter: 50
+max_inner_loop_iter: 50

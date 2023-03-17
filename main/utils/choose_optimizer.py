@@ -67,8 +67,8 @@ def choose_optimizer(method=None, args=None):
         from main.graphinvent.run import GraphInvent_Optimizer as Optimizer
     elif method == "rationale_rl":
         from main.rationale_rl.run import Rationale_RL_Optimizer as Optimizer
-    elif method == "gpbo_reinvent":
-        from main.gpbo_reinvent.run import REINVENT_Optimizer as Optimizer
+  #  elif method == "gpbo_reinvent":
+   #     from main.gpbo_reinvent.run import REINVENT_Optimizer as Optimizer
     elif "gpbo_" in method:
         from main.gpbo_general.gpbo_outer import GPBO_Optimizer as Optimizer
 

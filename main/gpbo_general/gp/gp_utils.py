@@ -61,3 +61,16 @@ def transfer_gp_hyperparameters(gp_model_src: TanimotoGP, gp_model_dest: Tanimot
 
     # Reinitialize variables
     gp_model_dest.initialize(**hp_dest)
+
+
+def get_trained_gp(
+    X_train,
+    y_train,
+):
+
+    # Fit model using type 2 maximum likelihood
+    model = TanimotoGP(
+        train_x=torch.as_tensor(X_train), train_y=torch.as_tensor(y_train)
+    )
+    fit_gp_hyperparameters(model)
+    return model
