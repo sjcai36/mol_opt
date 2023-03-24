@@ -74,15 +74,14 @@ class GB_GA_Optimizer(BaseOptimizer):
         if inner_loop:
             start_cache = dict(scoring_function.cache)
             start_cache_size = len(start_cache)
-        else:
-            self.oracle.assign_evaluator(oracle)
+        
+        self.oracle.assign_evaluator(oracle)
 
         pool = joblib.Parallel(n_jobs=self.n_jobs)
 
         starting_population = self.starting_population
 
         # select initial population
-        # population_smiles = heapq.nlargest(config["population_size"], starting_population, key=oracle)
         population_smiles = starting_population
         population_mol = [Chem.MolFromSmiles(s) for s in population_smiles]
         if inner_loop:
@@ -115,6 +114,7 @@ class GB_GA_Optimizer(BaseOptimizer):
             # stats
             old_scores = population_scores
             if inner_loop:
+                population_smiles = [Chem.MolToSmiles(mol) for mol in population_mol]
                 population_scores = scoring_function(population_smiles, batch=True)
             else:
                 population_scores = self.oracle([Chem.MolToSmiles(mol) for mol in population_mol])
@@ -125,9 +125,10 @@ class GB_GA_Optimizer(BaseOptimizer):
 
             if inner_loop:
                 # trim population
-                argsort = np.argsort(-np.asarray(population_scores))[:population_size]
+                argsort = np.argsort(-np.asarray(population_scores))[:config["population_size"]]
                 population_smiles = [population_smiles[i] for i in argsort]
                 population_scores = [population_scores[i] for i in argsort]
+                generation += 1
                 
             ### early stopping
             if inner_loop:
@@ -160,7 +161,7 @@ class GB_GA_Optimizer(BaseOptimizer):
             top_smiles_at_bo_iter_start = [
                         s
                         for _, s in heapq.nlargest(
-                            config["ga_pool_num_best"],
+                            120,
                             [
                                 (self.oracle(smiles), smiles)
                                 for smiles in self.oracle.mol_buffer.keys()
@@ -168,3 +169,9 @@ class GB_GA_Optimizer(BaseOptimizer):
                         )
             ]
             self.starting_population = set(top_smiles_at_bo_iter_start)
+
+            sm_ac_list = list(scoring_function.cache.items())
+            sm_ac_list.sort(reverse=True, key=lambda t: t[1])
+            smiles_out = [s for s, v in sm_ac_list]
+            acq_out = [v for s, v in sm_ac_list]
+            return smiles_out, acq_out
