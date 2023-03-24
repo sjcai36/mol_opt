@@ -18,7 +18,7 @@ from main.gpbo_general.gp import (
 from main.gpbo_general.fingerprints import smiles_to_fp_array
 from main.gpbo_general import acquisition_funcs
 from main.gpbo_general.function_utils import CachedFunction, CachedBatchFunction
-from graph_ga.graph_ga import run_ga_maximization
+from main.gpbo.graph_ga.graph_ga import run_ga_maximization
 
 
 def get_trained_gp(
@@ -89,7 +89,7 @@ def acq_f_of_time(bo_iter, bo_state_dict):
 class GPBO_Optimizer(BaseOptimizer):
     def __init__(self, args=None):
         super().__init__(args)
-        self.model_name = "gp_bo"
+        self.model_name = "gpbo"
 
     def _optimize(self, oracle, config):
 

@@ -2,6 +2,7 @@ import os
 import sys
 import numpy as np
 from rdkit.Chem import rdMolDescriptors
+import heapq
 
 path_here = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(path_here)
@@ -122,27 +123,23 @@ class GPBO_Optimizer(BaseOptimizer):
             del gp_train_smiles  # should refer to new variables later on; don't want to use by mistake
 
             # Keep a pool of all SMILES encountered (used for seeding GA)
-            if smiles_pool is None:
-                smiles_pool = set()
-            else:
-                smiles_pool = set(smiles_pool)
-            smiles_pool.update(start_cache.keys())
-            smiles_pool.update(gp_train_smiles_set)
-            assert (
-                len(smiles_pool) > 0
-            ), "No SMILES were provided to the algorithm as training data, known scores, or a SMILES pool."
+         #   if smiles_pool is None:
+          #      smiles_pool = set()
+          #  else:
+        #        smiles_pool = set(smiles_pool)
+            # smiles_pool.update(start_cache.keys())
+            # smiles_pool.update(gp_train_smiles_set)
+            # assert (
+            #     len(smiles_pool) > 0
+            # ), "No SMILES were provided to the algorithm as training data, known scores, or a SMILES pool."
 
             # Handle edge case of no training data
-            if len(gp_train_smiles_set) == 0:
-                #     f"No SMILES were provided to train GP. A random one will be chosen from the pool to start training."
-                random_smiles = random.choice(list(smiles_pool))
-                gp_train_smiles_set.add(random_smiles)
-                del random_smiles
+            # if len(gp_train_smiles_set) == 0:
+            #     #     f"No SMILES were provided to train GP. A random one will be chosen from the pool to start training."
+            #     random_smiles = random.choice(list(smiles_pool))
+            #     gp_train_smiles_set.add(random_smiles)
+            #     del random_smiles
 
-            # Evaluate scores of training data (ideally should all be known)
-            num_train_data_not_known = len(
-                gp_train_smiles_set - set(start_cache.keys())
-            )
             gp_train_smiles_list = list(gp_train_smiles_set)
             gp_train_smiles_scores = self.oracle(list(gp_train_smiles_set))
 
@@ -162,7 +159,7 @@ class GPBO_Optimizer(BaseOptimizer):
             )
 
             # State variables for BO loop
-            carryover_smiles_pool = set()
+         #   carryover_smiles_pool = set()
             bo_query_res = list()
             bo_state_dict = dict(
                 gp_model=gp_model,
@@ -181,7 +178,6 @@ class GPBO_Optimizer(BaseOptimizer):
 
                 if self.finish:
                     break
-
                 # Current acquisition function
                 curr_acq_func = acq_f_of_time(bo_iter, bo_state_dict)
 
@@ -203,7 +199,7 @@ class GPBO_Optimizer(BaseOptimizer):
                 )
 
                 # Now that new SMILES were generated, add them to the pool
-                smiles_pool.update(acq_smiles)
+         #       smiles_pool.update(acq_smiles)
 
                 # Greedily choose SMILES to be in the BO batch
                 smiles_batch = []
