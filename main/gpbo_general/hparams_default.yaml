@@ -14,3 +14,6 @@ population_size: 120
 offspring_size: 70
 mutation_rate: .067
 max_generations: 2
+max_ga_start_population_size: 1000
+ga_pool_num_carryover: 250
+ga_pool_num_best: 250

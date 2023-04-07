@@ -191,11 +191,16 @@ class GPBO_Optimizer(BaseOptimizer):
                         smiles_batch_acq.append(acq)
                     if len(smiles_batch) >= config["bo_batch_size"]:
                         break
+
+                try:
+                    self.internal_optimizer.gp_train_smiles_set = gp_train_smiles_set
+                except:
+                    pass
                 del candidate_smiles, acq
 
                 assert (
                     len(smiles_batch) > 0
-                ), "Empty batch, shouldn't happen. Must be problem with GA."
+                ), "Empty batch, shouldn't happen. Must be problem with internal optimizer."
 
                 smiles_batch_np, invalid_idx = smiles_to_fingerprint_stack(
                     smiles_batch, config, x_train_np.dtype
