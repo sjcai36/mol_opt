@@ -63,7 +63,7 @@ class GPBO_Optimizer(BaseOptimizer):
                 rand_idxs = random.sample(remaining_idxs, k=config["n_train_gp_rand"])
             return sorted(best_idxs + rand_idxs)
 
-        def refit_gp_change_subset(bo_iter, gp_model, bo_state_dict):
+        def refit_gp_change_subset(gp_model):
             gp_model.train()
             x = gp_model.train_inputs[0]
             y = gp_model.train_targets.detach().cpu().numpy()
@@ -121,6 +121,18 @@ class GPBO_Optimizer(BaseOptimizer):
                 gp_train_smiles_set = set(gp_train_smiles)
             del gp_train_smiles  # should refer to new variables later on; don't want to use by mistake
 
+            # NEW SEGMENT
+
+            # Keep a pool of all SMILES encountered (used for seeding GA)
+            if smiles_pool is None:
+                smiles_pool = set()
+            else:
+                smiles_pool = set(smiles_pool)
+            smiles_pool.update(start_cache.keys())
+            smiles_pool.update(gp_train_smiles_set)
+            # NEW SEGMENT END
+
+            # Evaluate scores of training data (ideally should all be known)
             gp_train_smiles_list = list(gp_train_smiles_set)
             gp_train_smiles_scores = self.oracle(list(gp_train_smiles_set))
 
@@ -140,6 +152,7 @@ class GPBO_Optimizer(BaseOptimizer):
             )
 
             # State variables for BO loop
+            carryover_smiles_pool = set()
             bo_query_res = list()
             bo_state_dict = dict(
                 gp_model=gp_model,
@@ -150,7 +163,7 @@ class GPBO_Optimizer(BaseOptimizer):
 
             # Initial fitting of GP hyperparameters
             refit_gp_change_subset(
-                bo_iter=0, gp_model=gp_model, bo_state_dict=bo_state_dict
+                gp_model=gp_model
             )
 
             # Actual BO loop
@@ -178,6 +191,8 @@ class GPBO_Optimizer(BaseOptimizer):
                     config=config,
                     inner_loop=True,
                 )
+
+                smiles_pool.update(acq_smiles)
 
                 # Greedily choose SMILES to be in the BO batch
                 smiles_batch = []
@@ -226,6 +241,7 @@ class GPBO_Optimizer(BaseOptimizer):
                     ],
                     axis=0,
                 )
+                # ignore invalid values in outer loop training
                 for i in invalid_idx:
                     y_train_np = np.delete(y_train_np, i + y_invalid_offset)
                     y_invalid_offset -= 1
@@ -251,16 +267,16 @@ class GPBO_Optimizer(BaseOptimizer):
                     if j not in invalid_idx:
                         transformed_score = self.oracle(s)
                         pred_dict = dict(
-                            mu=float(smiles_batch_mu_pre[i]),
-                            std=float(np.sqrt(smiles_batch_var_pre[i])),
-                            acq=smiles_batch_acq[i],
+                            mu=float(smiles_batch_mu_pre[j]),
+                            std=float(np.sqrt(smiles_batch_var_pre[j])),
+                            acq=smiles_batch_acq[j],
                         )
                         pred_dict["pred_error_in_stds"] = (
                             pred_dict["mu"] - transformed_score
                         ) / pred_dict["std"]
                         pred_dict_post1 = dict(
-                            mu=float(smiles_batch_mu_post1[i]),
-                            std=float(np.sqrt(smiles_batch_var_post1[i])),
+                            mu=float(smiles_batch_mu_post1[j]),
+                            std=float(np.sqrt(smiles_batch_var_post1[j])),
                         )
                         res = dict(
                             bo_iter=bo_iter,

@@ -127,44 +127,35 @@ class GB_GA_Optimizer(BaseOptimizer):
         patience = 0
         generation = 0
 
-        while True:
-            if generation > config["max_generations"]:
-                break
+        for generation in range(config["max_generations"]):
             population_mol = self.make_new_population(population_mol, population_scores, config, pool)
 
             population_smiles = [Chem.MolToSmiles(mol) for mol in population_mol]
             population_scores = scoring_function(population_smiles, batch=True)
 
             argsort = np.argsort(-np.asarray(population_scores))[:config["population_size"]]
-            population_smiles = [population_smiles[i] for i in argsort]
+            population_mol= [population_mol[i] for i in argsort]
             population_scores = [population_scores[i] for i in argsort]
-            generation += 1
 
-            sm_ac_list = list(scoring_function.cache.items())
-            sm_ac_list.sort(reverse=True, key=lambda t: t[1])
-            smiles_out = [s for s, v in sm_ac_list]
-            acq_out = [v for s, v in sm_ac_list]
-            self.starting_population = smiles_out
+        sm_ac_list = list(scoring_function.cache.items())
+        sm_ac_list.sort(reverse=True, key=lambda t: t[1])
+        smiles_out = [s for s, v in sm_ac_list]
+        acq_out = [v for s, v in sm_ac_list]
+        self.starting_population = smiles_out
 
-            
-            sm_ac_list = list(scoring_function.cache.items())
-            sm_ac_list.sort(reverse=True, key=lambda t: t[1])
-            smiles_out = [s for s, v in sm_ac_list]
-            acq_out = [v for s, v in sm_ac_list]
-
-            # Add SMILES with high acquisition function values to the priority pool,
-            # Since maybe they will have high acquisition function values next time
-            self.carryover_smiles_pool = set()
-            for s in smiles_out:
-                if (
-                    len(self.carryover_smiles_pool) < config["ga_pool_num_carryover"]
-                    and s not in self.gp_train_smiles_set
+        # Add SMILES with high acquisition function values to the priority pool,
+        # Since maybe they will have high acquisition function values next time
+        self.carryover_smiles_pool = set()
+        for s in smiles_out:
+            if (
+                len(self.carryover_smiles_pool) < config["ga_pool_num_carryover"]
+                and s not in self.gp_train_smiles_set
                 ):
-                    self.carryover_smiles_pool.add(s)
-                else:
-                    break
+                self.carryover_smiles_pool.add(s)
+            else:
+                break
 
-            return smiles_out, acq_out
+        return smiles_out, acq_out
     
     def outer_optimize(self, oracle, config, max_generations):
         pool = joblib.Parallel(n_jobs=self.n_jobs)

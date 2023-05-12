@@ -10,10 +10,10 @@ fp_radius: 2
 fp_nbits: 4096
 initial_population_size: 340
 max_inner_loop_iter: 50
-population_size: 120
-offspring_size: 70
-mutation_rate: .067
-max_generations: 2
+population_size: 820
+offspring_size: 150
+mutation_rate: .01
+max_generations: 60
 max_ga_start_population_size: 1000
 ga_pool_num_carryover: 250
 ga_pool_num_best: 250
